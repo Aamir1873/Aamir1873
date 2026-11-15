@@ -1,0 +1,13 @@
+# Published: the README, its images, the script that makes them and the daily workflow.
+# Everything else stays local: data/ holds private-repo details, and the riso pages
+# (build.py, concepts*, assets/, src/, preview*.html) are material for the portfolio site.
+*
+!.gitignore
+!README.md
+!profile/
+!profile/*.svg
+!scripts/
+!scripts/profile.py
+!.github/
+!.github/workflows/
+!.github/workflows/update-profile.yml

@@ -1,0 +1,45 @@
+name: Update profile stats
+
+# Rebuilds profile/*.svg and README.md from live GitHub data once a day.
+# Needs a repository secret PROFILE_STATS_TOKEN: a classic personal access token with the
+# "repo" and "read:user" scopes, so private repositories and contributions are counted.
+# The script only ever writes totals, never repository names.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"   # 06:17 in Doha
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-profile
+  cancel-in-progress: true
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Render profile
+        env:
+          GH_TOKEN: ${{ secrets.PROFILE_STATS_TOKEN }}
+        run: python scripts/profile.py
+
+      - name: Commit if anything changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md profile
+          if git diff --cached --quiet; then
+            echo "No changes."
+          else
+            git commit -m "Update profile stats"
+            git push
+          fi
