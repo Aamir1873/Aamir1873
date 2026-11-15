@@ -188,10 +188,10 @@ def date(iso, form="%-d %b %Y"):
     return dt.date.fromisoformat(iso).strftime(form)
 
 
-# --------------------------------------------------------------------------- flower (a lo-fi dithered plant that grows and blooms)
+# --------------------------------------------------------------------------- magnolia and flag (lo-fi dither)
 EASE = ".42 0 .58 1"
-EASE_OUT = ".2 .7 .3 1"
-B4_SEED = 7
+SLOW = ".3 .1 .3 1"
+QATAR_MAROON = "#8a1538"
 
 
 def _bez(p0, p1, p2, p3, t):
@@ -214,10 +214,10 @@ def _near(lines, x, y, r):
 
 
 def _dots(tone, x0, x1, y0, y1, cell):
-    """Ordered (4x4 Bayer) dither of a tone field into square ink pixels, as one path."""
-    out, size = [], cell * .8
-    for gy in range(int(y0 // cell) - 1, int(y1 // cell) + 1):
-        for gx in range(int(x0 // cell) - 1, int(x1 // cell) + 1):
+    """Ordered (4x4 Bayer) dither of a tone field into square ink pixels, as path data."""
+    out, size = [], cell * .82
+    for gy in range(int(math.floor(y0 / cell)) - 1, int(y1 // cell) + 1):
+        for gx in range(int(math.floor(x0 / cell)) - 1, int(x1 // cell) + 1):
             t = tone(gx * cell + cell / 2, gy * cell + cell / 2)
             if t is None or t <= (B4[gy % 4][gx % 4] + .5) / 16:
                 continue
@@ -226,114 +226,113 @@ def _dots(tone, x0, x1, y0, y1, cell):
     return "".join(out)
 
 
-STEM = ((0, 0), (-7, -52), (11, -100), (4, -150))      # base to flower head, local units (up is -y)
-STEM_LINE = [[_bez(*STEM, k / 60) for k in range(61)]]
-TOP = STEM[3]
-LEAVES = [(.34, -152, 1.8), (.6, -28, 2.6)]              # (position along stem, angle, start time)
+def _tepal_outline(length=44, width=31, k=32):
+    """Outline of one magnolia tepal pointing up (-y) from its base: narrow base, broad rounded tip."""
+    left, right = [], []
+    for i in range(k + 1):
+        t = i / k
+        half = width / 2 * (math.sin(math.pi * min(1, t * .95 + .05)) ** .6) * (.55 + .45 * t)
+        left.append((-half, -t * length))
+        right.append((half, -t * length))
+    tip = [(width / 2 * .5 * math.cos(a) * .9, -length - 4 * math.sin(a)) for a in [math.pi * j / 8 for j in range(1, 8)]]
+    return right + tip + left[::-1]
 
 
-def _stem_tone(x, y):
-    return 1 if _near(STEM_LINE, x, y, 2.6) else None
+TEPAL = _tepal_outline()
 
 
-def _leaf_tone(x, y, length=46, width=17):
-    """An almond leaf along +x from its base: dithered blade, solid midrib and rim."""
-    if not 0 <= x <= length:
+def _inside_poly(poly, x, y):
+    hit, j = False, len(poly) - 1
+    for i in range(len(poly)):
+        (xi, yi), (xj, yj) = poly[i], poly[j]
+        if (yi > y) != (yj > y) and x < (xj - xi) * (y - yi) / (yj - yi) + xi:
+            hit = not hit
+        j = i
+    return hit
+
+
+def _tepal_tone(x, y):
+    if not _inside_poly(TEPAL, x, y):
         return None
-    half = width / 2 * math.sin(math.pi * x / length) ** .8
-    if abs(y) > half:
-        return None
-    if abs(y) <= 1.3 or abs(y) >= half - 1.7:
-        return 1
-    return .38 + .24 * (1 - x / length)
-
-
-def _petal_tone(x, y, inner=8, outer=42, width=14):
-    """A petal pointing up (-y) from the flower centre: dithered, darker at the base, with a solid rim."""
-    r = -y
-    if not inner <= r <= outer:
-        return None
-    t = (r - inner) / (outer - inner)
-    half = width / 2 * math.sin(math.pi * min(1, t * 1.08)) ** .55
-    if abs(x) > half:
-        return None
-    if abs(x) >= half - 1.6 or t > .95:
-        return 1
-    return .34 + .3 * (1 - t)
-
-
-def _disc_tone(x, y, r=12):
-    d = (x * x + y * y) ** .5
-    if d > r:
-        return None
-    seeds = [(3.4 * math.cos(a), 3.4 * math.sin(a)) for a in (0, 2.1, 4.2)] + [(0, 0)]
-    if d < r - 2 and any((x - sx) ** 2 + (y - sy) ** 2 < 1.6 for sx, sy in seeds):
-        return 0
-    return 1
+    if _near([TEPAL + TEPAL[:1]], x, y, 1.6):
+        return 1                                           # solid rim
+    t = min(1, -y / 44)
+    return .82 * (1 - t) ** 1.1 + .07                      # deep blush at the base, paler toward the tips
 
 
 def _bud_tone(x, y):
-    if ((x / 8) ** 2 + ((y + 11) / 13) ** 2) > 1:
+    if ((x / 7) ** 2 + ((y + 12) / 14) ** 2) > 1:
         return None
-    return 1 if ((x / 8) ** 2 + ((y + 11) / 13) ** 2) > .62 or abs(x) < 1.2 else .55
+    return 1 if ((x / 7) ** 2 + ((y + 12) / 14) ** 2) > .62 else .5 - .3 * (-y / 26)
 
 
-def _soil_tone(x, y):
-    if ((x / 40) ** 2 + (y / 9) ** 2) > 1 or y < -9:
+def _leaf_tone(x, y, length=40, width=20):
+    if not 0 <= x <= length:
         return None
-    return .5 + .3 * (y + 9) / 9
+    half = width / 2 * math.sin(math.pi * x / length) ** .7
+    if abs(y) > half:
+        return None
+    return 1 if abs(y) <= 1.2 or abs(y) >= half - 1.6 else .34 + .2 * (1 - x / length)
 
 
-def _grow(begin, dur, frm="0 0", to="1 1", spline=EASE_OUT):
-    return (f'<animateTransform attributeName="transform" type="scale" from="{frm}" to="{to}" begin="{begin}s" dur="{dur}s" '
-            f'fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="{spline}"/>')
+def _pistil_tone(x, y):
+    if not (-20 <= y <= 0 and abs(x) <= 5 * (1 + y / 24)):
+        return None
+    return .9
 
 
-def flower(u, bx, by, scale, cell=3):
-    """A plant that grows from a sprout to a bloom once, then sways in place and gives off a little pollen."""
-    stem_h = -TOP[1] + 2
-    clip = (f'<clipPath id="{u}-stem"><rect x="-30" y="2" width="60" height="0">'
-            f'<animate attributeName="y" from="2" to="{-stem_h}" begin=".5s" dur="3.6s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="{EASE_OUT}"/>'
-            f'<animate attributeName="height" from="0" to="{stem_h + 2}" begin=".5s" dur="3.6s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="{EASE_OUT}"/>'
-            f'</rect></clipPath>')
+def magnolia(u, bx, by, scale, cell=2.4, branch_from=(120, 96)):
+    """One magnolia: a branch with two leaves and a side bud, and a bloom that opens slowly from a closed bud,
+    then sways a little. (bx, by) is the base of the bloom; the branch runs down to the right from it."""
+    paper = f'fill="{PAPER}"'
     ink = f'fill="{BLUE}"'
-    soil = f'<path d="{_dots(_soil_tone, -42, 42, -10, 2, cell)}" {ink}/>'
-    stem = f'<g clip-path="url(#{u}-stem)"><path d="{_dots(_stem_tone, -12, 16, -152, 2, cell)}" {ink}/></g>'
-    leaf_px = _dots(_leaf_tone, 0, 48, -10, 10, cell)
-    leaves = ""
-    for pos, angle, start in LEAVES:
-        ax, ay = _bez(*STEM, pos)
-        leaves += (f'<g transform="translate({n(ax)} {n(ay)}) rotate({angle})"><g transform="scale(0)">{_grow(start, 1.6)}'
-                   f'<path d="{leaf_px}" {ink}/></g></g>')
-    bud = (f'<g transform="translate({TOP[0]} {TOP[1]})"><g transform="scale(0)">{_grow(3.7, 1.1)}'
-           f'<g><animate attributeName="opacity" from="1" to="0" begin="5.3s" dur=".9s" fill="freeze"/>'
-           f'<path d="{_dots(_bud_tone, -9, 9, -25, 2, cell)}" {ink}/></g></g></g>')
-    petal_px = _dots(_petal_tone, -11, 11, -41, -6, cell)
-    petals = ""
-    for i in range(8):
-        target, start = i * 45, 4.9 + (i % 4) * .08
-        fold = (i * 45 + 180) % 360 - 180        # fold every petal back toward straight up
-        petals += (f'<g transform="rotate({fold * .12:.1f})"><animateTransform attributeName="transform" type="rotate" '
-                   f'from="{fold * .12:.1f}" to="{target}" begin="{start:.2f}s" dur="2.4s" fill="freeze" calcMode="spline" keyTimes="0;1" '
-                   f'keySplines="{EASE_OUT}"/><g transform="scale(0)">{_grow(start, 2.2)}<path d="{petal_px}" {ink}/></g></g>')
-    disc = f'<g transform="scale(0)">{_grow(5.4, 1.4)}<path d="{_dots(_disc_tone, -13, 13, -13, 13, cell)}" {ink}/></g>'
-    head = f'<g transform="translate({TOP[0]} {TOP[1]})">{petals}{disc}</g>'
+    ex, ey = branch_from
+    branch = [[_bez((ex, ey), (ex * .66, ey * .9), (ex * .3, ey * .55), (0, 6), k / 40) for k in range(41)]]
+    twig = [[_bez(branch[0][18], (branch[0][18][0] - 8, branch[0][18][1] - 14), (branch[0][18][0] - 10, branch[0][18][1] - 26),
+                  (branch[0][18][0] - 14, branch[0][18][1] - 36), k / 20) for k in range(21)]]
+    wood = _dots(lambda x, y: 1 if _near(branch, x, y, 3.2) else (1 if _near(twig, x, y, 2) else None),
+                 -6, ex + 4, -6 - abs(twig[0][-1][1]), ey + 6, cell)
+    leaf_px = _dots(_leaf_tone, 0, 42, -12, 12, cell)
+    (l1x, l1y), (l2x, l2y) = branch[0][30], branch[0][12]
+    leaves = (f'<g transform="translate({n(l1x)} {n(l1y)}) rotate(68)"><path d="{leaf_px}" {ink}/></g>'
+              f'<g transform="translate({n(l2x)} {n(l2y)}) rotate(160)"><path d="{leaf_px}" {ink}/></g>')
+    tx, ty = twig[0][-1]
+    side_bud = f'<g transform="translate({n(tx)} {n(ty)}) rotate(-18) scale(.8)"><path d="{_dots(_bud_tone, -8, 8, -28, 2, cell)}" {ink}/></g>'
 
-    rnd = __import__("random").Random(5)
-    pollen = ""
-    for k in range(7):
-        sx, sy = TOP[0] + rnd.uniform(-10, 10), TOP[1] + rnd.uniform(-8, 4)
-        dx, dy, d = rnd.uniform(-22, 22), rnd.uniform(-46, -26), rnd.uniform(5, 8.5)
-        begin = 8 + rnd.uniform(0, 6)
-        s = cell * .8
-        pollen += (f'<rect x="{n(sx)}" y="{n(sy)}" width="{n(s)}" height="{n(s)}" {ink} opacity="0">'
-                   f'<animate attributeName="opacity" values="0;.8;0" dur="{d:.1f}s" begin="{begin:.1f}s" repeatCount="indefinite"/>'
-                   f'<animateTransform attributeName="transform" type="translate" values="0 0;{n(dx)} {n(dy)}" dur="{d:.1f}s" '
-                   f'begin="{begin:.1f}s" repeatCount="indefinite"/></rect>')
-    sway = (f'<animateTransform attributeName="transform" type="rotate" values="0 0 0;1.8 0 0;-1.4 0 0;0 0 0" begin="7.5s" dur="11s" '
-            f'repeatCount="indefinite" calcMode="spline" keyTimes="0;.35;.7;1" keySplines="{EASE};{EASE};{EASE}"/>')
-    plant = f'<g>{sway}{stem}{leaves}{bud}{head}{pollen}</g>'
-    return f'<defs>{clip}</defs><g transform="translate({bx} {by}) scale({scale})">{plant}{soil}</g>'
+    tepal_px = _dots(_tepal_tone, -17, 17, -50, 2, cell)
+    tepal_shape = "M" + "L".join(f"{n(x)} {n(y)}" for x, y in TEPAL) + "Z"
+
+    def tepal(final, size, start, dur):
+        closed = final * .1
+        return (f'<g transform="rotate({n(closed)})"><animateTransform attributeName="transform" type="rotate" from="{n(closed)}" '
+                f'to="{n(final)}" begin="{start}s" dur="{dur}s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="{SLOW}"/>'
+                f'<g transform="scale({size})"><path d="{tepal_shape}" {paper}/><path d="{tepal_px}" {ink}/></g></g>')
+
+    back = "".join(tepal(a, .98, 1.2 + i * .25, 6.5) for i, a in enumerate((-24, 24, 0)))
+    pistil = f'<path d="{_dots(_pistil_tone, -6, 6, -22, 1, cell)}" {ink}/>'
+    front = "".join(tepal(a, .9, 1.0 + i * .2, 6.8) for i, a in enumerate((-44, 44, -14, 14)))
+    calyx = f'<path d="{_dots(lambda x, y: 1 if (x / 7) ** 2 + ((y - 2) / 4) ** 2 <= 1 else None, -8, 8, -3, 7, cell)}" {ink}/>'
+    sway = (f'<animateTransform attributeName="transform" type="rotate" values="0 0 0;1.6 0 0;-1.2 0 0;0 0 0" begin="8s" dur="10s" '
+            f'repeatCount="indefinite" calcMode="spline" keyTimes="0;.4;.75;1" keySplines="{EASE};{EASE};{EASE}"/>')
+    bloom = f'<g>{sway}{back}{pistil}{front}{calyx}</g>'
+    return (f'<g transform="translate({bx} {by}) scale({scale})"><path d="{wood}" {ink}/>{leaves}{side_bud}{bloom}</g>')
+
+
+def qatar_flag(x, y, w, cell=2):
+    """Qatar's flag as a small dithered image: maroon pixels, a white nine-point serrated band, a maroon rim."""
+    h = w * 11 / 28
+    band, tooth = w * .24, w * .11
+
+    def tone(px, py):
+        if not (0 <= px <= w and 0 <= py <= h):
+            return None
+        if px < cell or px > w - cell or py < cell or py > h - cell:
+            return 1
+        f = (py / (h / 9)) % 1
+        edge = band + tooth * (1 - abs(2 * f - 1))
+        return 0 if px < edge else .86
+
+    return f'<path d="{_dots(tone, 0, w, 0, h, cell)}" transform="translate({x} {y})" fill="{QATAR_MAROON}"/>'
 
 
 # --------------------------------------------------------------------------- hero
@@ -341,7 +340,8 @@ def hero(s):
     u, W, H = "hero", 880, 250
     x, y, w, h = 8, 6, 864, 236
     body = [card(x, y, w, h),
-            flower(u, 770, 238, 1, cell=3),
+            magnolia(u, 744, 128, 1.05, branch_from=(118, 104)),
+            qatar_flag(804, 22, 54, cell=1.4),
             label(40, 56, ROLE),
             text(36, 132, NAME, 62, BLUE, family=SERIF, italic=True, ls=-1),
             text(40, 172, PITCH, 17),
@@ -351,7 +351,8 @@ def hero(s):
     u, W, H = "hero-m", 440, 312
     x, y, w, h = 6, 6, 428, 300
     body = [card(x, y, w, h),
-            flower(u, 394, 302, .62, cell=4),
+            magnolia(u, 360, 126, .62, cell=2.6, branch_from=(122, 110)),
+            qatar_flag(378, 20, 38, cell=1.2),
             label(24, 44, "AI & SOFTWARE ENGINEER", 11), label(24, 63, "DOHA, QATAR", 11),
             text(21, 146, "Aamir", 52, BLUE, family=SERIF, italic=True, ls=-1),
             text(21, 198, "Abdul Kader", 52, BLUE, family=SERIF, italic=True, ls=-1),
