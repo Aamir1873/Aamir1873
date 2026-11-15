@@ -226,6 +226,16 @@ def _dots(tone, x0, x1, y0, y1, cell):
     return "".join(out)
 
 
+def _inside_poly(poly, x, y):
+    hit, j = False, len(poly) - 1
+    for i in range(len(poly)):
+        (xi, yi), (xj, yj) = poly[i], poly[j]
+        if (yi > y) != (yj > y) and x < (xj - xi) * (y - yi) / (yj - yi) + xi:
+            hit = not hit
+        j = i
+    return hit
+
+
 def _tepal_outline(length=44, width=31, k=32):
     """Outline of one magnolia tepal pointing up (-y) from its base: narrow base, broad rounded tip."""
     left, right = [], []
@@ -239,16 +249,6 @@ def _tepal_outline(length=44, width=31, k=32):
 
 
 TEPAL = _tepal_outline()
-
-
-def _inside_poly(poly, x, y):
-    hit, j = False, len(poly) - 1
-    for i in range(len(poly)):
-        (xi, yi), (xj, yj) = poly[i], poly[j]
-        if (yi > y) != (yj > y) and x < (xj - xi) * (y - yi) / (yj - yi) + xi:
-            hit = not hit
-        j = i
-    return hit
 
 
 def _tepal_tone(x, y):
@@ -318,21 +318,28 @@ def magnolia(u, bx, by, scale, cell=2.4, branch_from=(120, 96)):
     return (f'<g transform="translate({bx} {by}) scale({scale})"><path d="{wood}" {ink}/>{leaves}{side_bud}{bloom}</g>')
 
 
-def qatar_flag(x, y, w, cell=2):
-    """Qatar's flag as a small dithered image: maroon pixels, a white nine-point serrated band, a maroon rim."""
+def qatar_flag(x, y, w, cell=1.2):
+    """Qatar's flag as a small dithered image: maroon dither, and a white band whose edge has exactly nine points.
+
+    The serrated edge is drawn as an exact shape so all nine points stay sharp at this size; only the maroon
+    area is dithered. Proportions follow the flag's 11:28 ratio.
+    """
     h = w * 11 / 28
-    band, tooth = w * .24, w * .11
-
-    def tone(px, py):
-        if not (0 <= px <= w and 0 <= py <= h):
-            return None
-        if px < cell or px > w - cell or py < cell or py > h - cell:
-            return 1
-        f = (py / (h / 9)) % 1
-        edge = band + tooth * (1 - abs(2 * f - 1))
-        return 0 if px < edge else .86
-
-    return f'<path d="{_dots(tone, 0, w, 0, h, cell)}" transform="translate({x} {y})" fill="{QATAR_MAROON}"/>'
+    base, tip = w * .25, w * .36                 # where the white band ends and how far its points reach
+    pid = f"qa{int(x)}{int(y)}"
+    dots = "".join(f'<rect x="{n(i * cell)}" y="{n(j * cell)}" width="{n(cell * .9)}" height="{n(cell * .9)}"/>'
+                   for j in range(4) for i in range(4) if B4[j][i] < 13)
+    pattern = (f'<pattern id="{pid}" width="{n(4 * cell)}" height="{n(4 * cell)}" patternUnits="userSpaceOnUse">'
+               f'<g fill="{QATAR_MAROON}">{dots}</g></pattern>')
+    edge = []
+    for i in range(9):
+        edge += [(base, h * i / 9), (tip, h * (i + .5) / 9)]
+    edge.append((base, h))
+    maroon = [(base, 0), (w, 0), (w, h)] + edge[::-1]
+    d = "M" + "L".join(f"{n(x + px)} {n(y + py)}" for px, py in maroon) + "Z"
+    return (f'<defs>{pattern}</defs><rect x="{n(x)}" y="{n(y)}" width="{n(w)}" height="{n(h)}" fill="#ffffff"/>'
+            f'<path d="{d}" fill="url(#{pid})"/>'
+            f'<rect x="{n(x + .5)}" y="{n(y + .5)}" width="{n(w - 1)}" height="{n(h - 1)}" fill="none" stroke="{QATAR_MAROON}" stroke-width="1"/>')
 
 
 # --------------------------------------------------------------------------- hero
@@ -340,8 +347,8 @@ def hero(s):
     u, W, H = "hero", 880, 250
     x, y, w, h = 8, 6, 864, 236
     body = [card(x, y, w, h),
-            magnolia(u, 744, 128, 1.05, branch_from=(118, 104)),
-            qatar_flag(804, 22, 54, cell=1.4),
+            magnolia(u, 744, 128, 1.15, branch_from=(112, 98)),
+            qatar_flag(796, 20, 62),
             label(40, 56, ROLE),
             text(36, 132, NAME, 62, BLUE, family=SERIF, italic=True, ls=-1),
             text(40, 172, PITCH, 17),
@@ -351,8 +358,8 @@ def hero(s):
     u, W, H = "hero-m", 440, 312
     x, y, w, h = 6, 6, 428, 300
     body = [card(x, y, w, h),
-            magnolia(u, 360, 126, .62, cell=2.6, branch_from=(122, 110)),
-            qatar_flag(378, 20, 38, cell=1.2),
+            magnolia(u, 360, 126, .68, cell=2.6, branch_from=(108, 100)),
+            qatar_flag(372, 18, 46, cell=1),
             label(24, 44, "AI & SOFTWARE ENGINEER", 11), label(24, 63, "DOHA, QATAR", 11),
             text(21, 146, "Aamir", 52, BLUE, family=SERIF, italic=True, ls=-1),
             text(21, 198, "Abdul Kader", 52, BLUE, family=SERIF, italic=True, ls=-1),
@@ -473,33 +480,21 @@ LINKS = [
 ]
 
 
-def arrow_badge(cx, cy, r, delay):
-    """A solid blue disc with a paper arrow that nudges up and to the right every few seconds."""
-    nudge = (f'<animateTransform attributeName="transform" type="translate" values="0 0;0 0;2 -2;0 0" keyTimes="0;.7;.85;1" '
-             f'dur="4s" begin="{delay}s" repeatCount="indefinite" calcMode="spline" keySplines="{EASE};{EASE};{EASE}"/>')
-    a = r * .36
-    return (f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="{BLUE}"/>'
-            f'<g>{nudge}<path d="M{n(cx - a)} {n(cy + a)}L{n(cx + a)} {n(cy - a)}M{n(cx - a * .4)} {n(cy - a)}H{n(cx + a)}V{n(cy + a * .4)}" '
-            f'fill="none" stroke="{PAPER}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></g>')
-
-
 def links():
-    for i, (key, lab, value, note, _) in enumerate(LINKS):
+    for key, lab, value, note, _ in LINKS:
         u = f"link-{key}"
         x, y, w, h = 8, 4, 864, 60
         body = [card(x, y, w, h), tint(u, "p50", x + 22, y + 21, 18, 18, 3),
                 label(x + 54, y + 36, lab, 11),
                 text(x + 170, y + 38, value, 23, BLUE, family=SERIF, italic=True)]
         ny = y + (27 if len(note) == 2 else 36)
-        body += [text(x + w - 64, ny + j * 18, line, 13.5, MUTED, anchor="end") for j, line in enumerate(note)]
-        body.append(arrow_badge(x + w - 32, y + h / 2, 14, i * .6))
+        body += [text(x + w - 24, ny + j * 18, line, 13.5, MUTED, anchor="end") for j, line in enumerate(note)]
         svg(u, 880, 68, u, "".join(body), f"{lab.title()}: {value}")
 
         u = f"link-{key}-m"
         x, y, w, h = 6, 3, 428, 66
         body = [card(x, y, w, h), label(x + 20, y + 26, lab, 10.5),
-                text(x + 19, y + 52, value, 19 if len(value) < 22 else 16.5, BLUE, family=SERIF, italic=True),
-                arrow_badge(x + w - 30, y + h / 2, 13, i * .6)]
+                text(x + 19, y + 52, value, 19 if len(value) < 22 else 16.5, BLUE, family=SERIF, italic=True)]
         svg(f"link-{key}-mobile", 440, 72, u, "".join(body), f"{lab.title()}: {value}")
 
 
