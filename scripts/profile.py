@@ -188,7 +188,7 @@ def date(iso, form="%-d %b %Y"):
     return dt.date.fromisoformat(iso).strftime(form)
 
 
-# --------------------------------------------------------------------------- magnolia and flag (lo-fi dither)
+# --------------------------------------------------------------------------- magnolia tree and flag (lo-fi dither)
 EASE = ".42 0 .58 1"
 SLOW = ".3 .1 .3 1"
 QATAR_MAROON = "#8a1538"
@@ -236,86 +236,133 @@ def _inside_poly(poly, x, y):
     return hit
 
 
-def _tepal_outline(length=44, width=31, k=32):
-    """Outline of one magnolia tepal pointing up (-y) from its base: narrow base, broad rounded tip."""
+MAGNOLIA_PINK = "#b23a83"
+
+
+def _cup_tepal(length=18, width=10.5, k=24):
+    """A tulip-magnolia tepal pointing up (-y) from the base of the cup."""
     left, right = [], []
     for i in range(k + 1):
         t = i / k
-        half = width / 2 * (math.sin(math.pi * min(1, t * .95 + .05)) ** .6) * (.55 + .45 * t)
+        half = width / 2 * math.sin(math.pi * min(1, .06 + .94 * t)) ** .5 * (.5 + .5 * t)
         left.append((-half, -t * length))
         right.append((half, -t * length))
-    tip = [(width / 2 * .5 * math.cos(a) * .9, -length - 4 * math.sin(a)) for a in [math.pi * j / 8 for j in range(1, 8)]]
-    return right + tip + left[::-1]
+    return right + left[::-1]
 
 
-TEPAL = _tepal_outline()
+CUP = _cup_tepal()
 
 
-def _tepal_tone(x, y):
-    if not _inside_poly(TEPAL, x, y):
+def _cup_tone(x, y):
+    if not _inside_poly(CUP, x, y):
         return None
-    if _near([TEPAL + TEPAL[:1]], x, y, 1.6):
-        return 1                                           # solid rim
-    t = min(1, -y / 44)
-    return .82 * (1 - t) ** 1.1 + .07                      # deep blush at the base, paler toward the tips
+    if _near([CUP + CUP[:1]], x, y, 1.1):
+        return 1
+    t = min(1, -y / 18)
+    return .9 * (1 - t) ** .9 + .1          # deep pink-purple at the base, pale toward the tip
 
 
-def _bud_tone(x, y):
-    if ((x / 7) ** 2 + ((y + 12) / 14) ** 2) > 1:
+def _tree(seed=21, depth=5):
+    """Branch segments (start, end, width) and branch tips for a small multi-stemmed magnolia: it splits low
+    into two stems and spreads into a rounded crown, like a saucer magnolia."""
+    rnd = __import__("random").Random(seed)
+    segs, tips = [], []
+
+    def grow(x, y, ang, length, width, d):
+        bend = rnd.uniform(-.12, .12)
+        mx, my = x + length * .5 * math.cos(ang), y + length * .5 * math.sin(ang)
+        ang2 = ang + bend
+        x1, y1 = mx + length * .5 * math.cos(ang2), my + length * .5 * math.sin(ang2)
+        segs.extend([((x, y), (mx, my), width), ((mx, my), (x1, y1), width * .9)])
+        tips.append((x1, y1, ang2, d))
+        if d == 0:
+            return
+        count = 2 if d > 3 else rnd.choice((2, 3, 3))
+        for k in range(count):
+            a = ang2 + (k - (count - 1) / 2) * rnd.uniform(.36, .58) + rnd.uniform(-.08, .08)
+            a = max(-math.pi + .72, min(-.72, a))             # keep branches reaching up and out, never down
+            grow(x1, y1, a, length * rnd.uniform(.74, .84), width * .68, d - 1)
+
+    segs.append(((0, 4), (0, -10), 8))                         # a short trunk before it splits
+    for stem in (-math.pi / 2 - .3, -math.pi / 2 + .26):
+        grow(0, -10, stem, 29, 6.4, depth)
+    return segs, tips
+
+
+def _wood_tone(segs):
+    def tone(x, y):
+        for (ax, ay), (bx, by), w in segs:
+            dx, dy = bx - ax, by - ay
+            ll = dx * dx + dy * dy
+            t = 0 if not ll else max(0, min(1, ((x - ax) * dx + (y - ay) * dy) / ll))
+            px, py = ax + t * dx - x, ay + t * dy - y
+            if px * px + py * py <= (w / 2) ** 2:
+                return 1
         return None
-    return 1 if ((x / 7) ** 2 + ((y + 12) / 14) ** 2) > .62 else .5 - .3 * (-y / 26)
+    return tone
 
 
-def _leaf_tone(x, y, length=40, width=20):
-    if not 0 <= x <= length:
-        return None
-    half = width / 2 * math.sin(math.pi * x / length) ** .7
-    if abs(y) > half:
-        return None
-    return 1 if abs(y) <= 1.2 or abs(y) >= half - 1.6 else .34 + .2 * (1 - x / length)
+def magnolia_tree(u, bx, by, scale, cell=2, seed=21, petals=6, blooms_max=40, spacing=11.5):
+    """A small saucer-magnolia tree: dark dithered trunk and branches, tulip-shaped pink blooms that open from
+    their own buds in a slow wave across the crown, and a few petals drifting to the ground."""
+    segs, tips = _tree(seed)
+    xs = [p[0] for s in segs for p in s[:2]]
+    ys = [p[1] for s in segs for p in s[:2]]
+    wood = _dots(_wood_tone(segs), min(xs) - 6, max(xs) + 6, min(ys) - 6, 4, cell)
+    ground = _dots(lambda x, y: (.28 + .3 * (y + 6) / 6) if (x / 46) ** 2 + (y / 6) ** 2 <= 1 and y >= -6 else None,
+                   -48, 48, -7, 2, cell)
+    px = _dots(_cup_tone, -7, 7, -20, 1, cell * .5)
+    cup = "M" + "L".join(f"{n(x)} {n(y)}" for x, y in CUP) + "Z"
+    pale = _dots(lambda x, y: (lambda t: None if t is None else (1 if t == 1 else t * .55))(_cup_tone(x, y)), -7, 7, -20, 1, cell * .5)
+    defs = (f'<path id="{u}-cup" d="{cup}" fill="{PAPER}"/>'
+            f'<path id="{u}-cuppx" d="{px}" fill="{MAGNOLIA_PINK}"/>'
+            f'<path id="{u}-cuppale" d="{pale}" fill="{MAGNOLIA_PINK}"/>')
+    use = f'<use href="#{u}-cup" xlink:href="#{u}-cup"/><use href="#{u}-cuppx" xlink:href="#{u}-cuppx"/>'
+    use_pale = f'<use href="#{u}-cup" xlink:href="#{u}-cup"/><use href="#{u}-cuppale" xlink:href="#{u}-cuppale"/>'
 
+    rnd = __import__("random").Random(seed + 1)
+    candidates = [i for i, t in enumerate(tips) if t[3] <= 2 and t[1] < -42]
+    rnd.shuffle(candidates)
+    keep = []
+    for i in sorted(candidates, key=lambda i: tips[i][3]):                  # outer tips first, then inner forks
+        if all((tips[i][0] - tips[j][0]) ** 2 + (tips[i][1] - tips[j][1]) ** 2 >= spacing ** 2 for j in keep):
+            keep.append(i)
+        if len(keep) >= blooms_max:
+            break
+    order = sorted(keep, key=lambda i: (tips[i][1], tips[i][0]))              # open from the top of the crown down
+    blooms = []
+    for rank, i in enumerate(order):
+        x, y, ang, _ = tips[i]
+        tilt = math.degrees(ang + math.pi / 2) * .5 + rnd.uniform(-8, 8)
+        size = rnd.uniform(.7, .88)
+        opens = .6 + rank * (4.4 / max(1, len(order) - 1)) + rnd.uniform(-.25, .25)
+        tepals, art = "", (use_pale if rnd.random() < .35 else use)
+        openness = rnd.choice((1, 1, 1, .8, .62))                               # some stay half-open
+        for a, layer in ((-17, 0), (17, 0), (-36, 1), (36, 1), (0, 1)):
+            closed, final = a * .12, a * openness
+            tepals += (f'<g transform="rotate({n(closed)})"><animateTransform attributeName="transform" type="rotate" '
+                       f'from="{n(closed)}" to="{n(final)}" begin="{opens:.2f}s" dur="2.6s" fill="freeze" calcMode="spline" '
+                       f'keyTimes="0;1" keySplines="{SLOW}"/>{art}</g>')
+        swell = (f'<animateTransform attributeName="transform" type="scale" from=".62" to="1" begin="{max(0, opens - 1.4):.2f}s" '
+                 f'dur="1.8s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="{SLOW}"/>')
+        blooms.append(f'<g transform="translate({n(x)} {n(y)}) rotate({n(tilt)}) scale({n(size)})">'
+                      f'<g transform="scale(.62)">{swell}{tepals}</g></g>')
 
-def _pistil_tone(x, y):
-    if not (-20 <= y <= 0 and abs(x) <= 5 * (1 + y / 24)):
-        return None
-    return .9
-
-
-def magnolia(u, bx, by, scale, cell=2.4, branch_from=(120, 96)):
-    """One magnolia: a branch with two leaves and a side bud, and a bloom that opens slowly from a closed bud,
-    then sways a little. (bx, by) is the base of the bloom; the branch runs down to the right from it."""
-    paper = f'fill="{PAPER}"'
-    ink = f'fill="{BLUE}"'
-    ex, ey = branch_from
-    branch = [[_bez((ex, ey), (ex * .66, ey * .9), (ex * .3, ey * .55), (0, 6), k / 40) for k in range(41)]]
-    twig = [[_bez(branch[0][18], (branch[0][18][0] - 8, branch[0][18][1] - 14), (branch[0][18][0] - 10, branch[0][18][1] - 26),
-                  (branch[0][18][0] - 14, branch[0][18][1] - 36), k / 20) for k in range(21)]]
-    wood = _dots(lambda x, y: 1 if _near(branch, x, y, 3.2) else (1 if _near(twig, x, y, 2) else None),
-                 -6, ex + 4, -6 - abs(twig[0][-1][1]), ey + 6, cell)
-    leaf_px = _dots(_leaf_tone, 0, 42, -12, 12, cell)
-    (l1x, l1y), (l2x, l2y) = branch[0][30], branch[0][12]
-    leaves = (f'<g transform="translate({n(l1x)} {n(l1y)}) rotate(68)"><path d="{leaf_px}" {ink}/></g>'
-              f'<g transform="translate({n(l2x)} {n(l2y)}) rotate(160)"><path d="{leaf_px}" {ink}/></g>')
-    tx, ty = twig[0][-1]
-    side_bud = f'<g transform="translate({n(tx)} {n(ty)}) rotate(-18) scale(.8)"><path d="{_dots(_bud_tone, -8, 8, -28, 2, cell)}" {ink}/></g>'
-
-    tepal_px = _dots(_tepal_tone, -17, 17, -50, 2, cell)
-    tepal_shape = "M" + "L".join(f"{n(x)} {n(y)}" for x, y in TEPAL) + "Z"
-
-    def tepal(final, size, start, dur):
-        closed = final * .1
-        return (f'<g transform="rotate({n(closed)})"><animateTransform attributeName="transform" type="rotate" from="{n(closed)}" '
-                f'to="{n(final)}" begin="{start}s" dur="{dur}s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="{SLOW}"/>'
-                f'<g transform="scale({size})"><path d="{tepal_shape}" {paper}/><path d="{tepal_px}" {ink}/></g></g>')
-
-    back = "".join(tepal(a, .98, 1.2 + i * .25, 6.5) for i, a in enumerate((-24, 24, 0)))
-    pistil = f'<path d="{_dots(_pistil_tone, -6, 6, -22, 1, cell)}" {ink}/>'
-    front = "".join(tepal(a, .9, 1.0 + i * .2, 6.8) for i, a in enumerate((-44, 44, -14, 14)))
-    calyx = f'<path d="{_dots(lambda x, y: 1 if (x / 7) ** 2 + ((y - 2) / 4) ** 2 <= 1 else None, -8, 8, -3, 7, cell)}" {ink}/>'
-    sway = (f'<animateTransform attributeName="transform" type="rotate" values="0 0 0;1.6 0 0;-1.2 0 0;0 0 0" begin="8s" dur="10s" '
+    falling = ""
+    for k in range(petals):
+        x, y, _, _ = tips[rnd.choice(keep)]
+        drift, d = rnd.uniform(-26, 26), rnd.uniform(8, 12)
+        begin = 7 + rnd.uniform(0, 9)
+        falling += (f'<g opacity="0"><animate attributeName="opacity" values="0;.9;.9;0" keyTimes="0;.1;.8;1" dur="{d:.1f}s" '
+                    f'begin="{begin:.1f}s" repeatCount="indefinite"/>'
+                    f'<animateTransform attributeName="transform" type="translate" values="{n(x)} {n(y)};{n(x + drift)} -4" '
+                    f'dur="{d:.1f}s" begin="{begin:.1f}s" repeatCount="indefinite"/>'
+                    f'<g transform="rotate({rnd.randint(40, 140)}) scale(.38)">{use}</g></g>')
+    sway = (f'<animateTransform attributeName="transform" type="rotate" values="0 0 0;.8 0 0;-.6 0 0;0 0 0" begin="7s" dur="12s" '
             f'repeatCount="indefinite" calcMode="spline" keyTimes="0;.4;.75;1" keySplines="{EASE};{EASE};{EASE}"/>')
-    bloom = f'<g>{sway}{back}{pistil}{front}{calyx}</g>'
-    return (f'<g transform="translate({bx} {by}) scale({scale})"><path d="{wood}" {ink}/>{leaves}{side_bud}{bloom}</g>')
+    return (f'<defs>{defs}</defs><g transform="translate({bx} {by}) scale({scale})">'
+            f'<path d="{ground}" fill="{BLUE}" opacity=".55"/>'
+            f'<g>{sway}<path d="{wood}" fill="{TEXT}"/>{"".join(blooms)}</g>{falling}</g>')
 
 
 def qatar_flag(x, y, w, cell=1.2):
@@ -344,21 +391,21 @@ def qatar_flag(x, y, w, cell=1.2):
 
 # --------------------------------------------------------------------------- hero
 def hero(s):
-    u, W, H = "hero", 880, 250
-    x, y, w, h = 8, 6, 864, 236
+    u, W, H = "hero", 880, 300
+    x, y, w, h = 8, 6, 864, 286
     body = [card(x, y, w, h),
-            magnolia(u, 744, 128, 1.15, branch_from=(112, 98)),
+            magnolia_tree(u, 762, 290, 1.7, cell=1.05, seed=17),
             qatar_flag(796, 20, 62),
-            label(40, 56, ROLE),
-            text(36, 132, NAME, 62, BLUE, family=SERIF, italic=True, ls=-1),
-            text(40, 172, PITCH, 17),
-            text(40, 208, NOW, 14, MUTED)]
+            label(40, 82, ROLE),
+            text(36, 158, NAME, 62, BLUE, family=SERIF, italic=True, ls=-1),
+            text(40, 198, PITCH, 17),
+            text(40, 234, NOW, 14, MUTED)]
     svg("hero", W, H, u, "".join(body), f"{NAME}, AI and software engineer in Doha, Qatar. {PITCH}")
 
-    u, W, H = "hero-m", 440, 312
-    x, y, w, h = 6, 6, 428, 300
+    u, W, H = "hero-m", 440, 432
+    x, y, w, h = 6, 6, 428, 420
     body = [card(x, y, w, h),
-            magnolia(u, 360, 126, .68, cell=2.6, branch_from=(108, 100)),
+            magnolia_tree(u, 318, 424, .9, cell=1.3, seed=17, blooms_max=30),
             qatar_flag(372, 18, 46, cell=1),
             label(24, 44, "AI & SOFTWARE ENGINEER", 11), label(24, 63, "DOHA, QATAR", 11),
             text(21, 146, "Aamir", 52, BLUE, family=SERIF, italic=True, ls=-1),
