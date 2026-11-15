@@ -372,8 +372,8 @@ def butterfly(u, waypoints, scale, dur, box, cell=3):
                      f'keySplines="{EASE};{EASE};{EASE}"/></path>'
                      for d, (v, t) in zip(wing, shimmer))
     defs = f'<g id="{u}-wing">{pixels}</g>'
-    beats, times = "1 1;.24 1;1 1;.24 1;1 1;.82 1;1 1", "0;.1;.2;.3;.4;.7;1"
-    flap = (f'<animateTransform attributeName="transform" type="scale" dur="6s" repeatCount="indefinite" values="{beats}" '
+    beats, times = "1 1;.36 1;1 1;.36 1;1 1;.86 1;1 1", "0;.1;.2;.3;.4;.7;1"
+    flap = (f'<animateTransform attributeName="transform" type="scale" dur="8.5s" repeatCount="indefinite" values="{beats}" '
             f'keyTimes="{times}" calcMode="spline" keySplines="{";".join([EASE] * 6)}"/>')
     use = f'<use href="#{u}-wing" xlink:href="#{u}-wing"/>'
     wings = f'<g transform="scale(-1 1)"><g>{flap}{use}</g></g><g>{flap}{use}</g>'
@@ -382,26 +382,26 @@ def butterfly(u, waypoints, scale, dur, box, cell=3):
     rnd = __import__("random").Random(11)
     edge = WING["fore"]["outer"][0] + WING["hind"]["outer"][0]
     specks = []
-    for k in range(26):
+    for k in range(14):
         px, py = edge[rnd.randrange(len(edge))]
         side = -1 if k % 2 else 1
         dx, dy = px - 40, py - 4
         ln = (dx * dx + dy * dy) ** .5 or 1
         dist = rnd.uniform(10, 24)
         tx, ty = side * (dx / ln * dist + rnd.uniform(-5, 5)), dy / ln * dist + rnd.uniform(-5, 5)
-        dur, s = rnd.uniform(4.5, 7.5), cell * .8
+        speck_dur, s = rnd.uniform(6.5, 10), cell * .8
         specks.append(f'<rect x="{n(side * px - s / 2)}" y="{n(py - s / 2)}" width="{n(s)}" height="{n(s)}" fill="{BLUE}" opacity="0">'
-                      f'<animate attributeName="opacity" values="0;.85;0" dur="{dur:.1f}s" begin="-{rnd.uniform(0, 4):.1f}s" repeatCount="indefinite"/>'
-                      f'<animateTransform attributeName="transform" type="translate" values="0 0;{n(tx)} {n(ty)}" dur="{dur:.1f}s" '
+                      f'<animate attributeName="opacity" values="0;.85;0" dur="{speck_dur:.1f}s" begin="-{rnd.uniform(0, 4):.1f}s" repeatCount="indefinite"/>'
+                      f'<animateTransform attributeName="transform" type="translate" values="0 0;{n(tx)} {n(ty)}" dur="{speck_dur:.1f}s" '
                       f'begin="-{rnd.uniform(0, 4):.1f}s" repeatCount="indefinite"/></rect>')
     insect = f'<g transform="scale({scale})">{"".join(specks)}{wings}<path d="{body[0]}" fill="{BLUE}"/></g>'
-    wobble = (f'<g>{insect}<animateTransform attributeName="transform" type="rotate" values="-5;4;-3;-5" dur="8s" '
+    wobble = (f'<g>{insect}<animateTransform attributeName="transform" type="rotate" values="-3;2.5;-2;-3" dur="12s" '
               f'repeatCount="indefinite" calcMode="spline" keyTimes="0;.4;.75;1" keySplines="{EASE};{EASE};{EASE}"/></g>')
     bx, by, bw, bh = box
     clip = f'<clipPath id="{u}-fly"><rect x="{bx}" y="{by}" width="{bw}" height="{bh}" rx="8"/></clipPath>'
     # keyPoints slow it to a hover twice per lap; rotate="auto" turns it along the path (its head points up, hence +90)
     motion = (f'<animateMotion path="{smooth_loop(waypoints)}" dur="{dur}s" repeatCount="indefinite" rotate="auto" '
-              f'keyPoints="0;.34;.7;1" keyTimes="0;.33;.68;1" calcMode="spline" keySplines="{EASE};{EASE};{EASE}"/>')
+              f'calcMode="paced"/>')
     flight = f'<g clip-path="url(#{u}-fly)"><g>{motion}<g transform="rotate(90)">{wobble}</g></g></g>'
     return f'<defs>{defs}{clip}</defs>' + flight
 
@@ -411,7 +411,7 @@ def hero(s):
     u, W, H = "hero", 880, 250
     x, y, w, h = 8, 6, 864, 236
     body = [card(x, y, w, h),
-            butterfly(u, [(760, 120), (650, 70), (440, 84), (230, 72), (118, 140), (290, 196), (540, 184), (790, 172)], .56, 96, (x, y, w, h)),
+            butterfly(u, [(770, 118), (600, 72), (360, 80), (150, 120), (330, 186), (600, 182)], .4, 150, (x, y, w, h), cell=4),
             label(40, 56, ROLE),
             text(36, 132, NAME, 62, BLUE, family=SERIF, italic=True, ls=-1),
             text(40, 172, PITCH, 17),
@@ -421,7 +421,7 @@ def hero(s):
     u, W, H = "hero-m", 440, 312
     x, y, w, h = 6, 6, 428, 300
     body = [card(x, y, w, h),
-            butterfly(u, [(354, 84), (240, 112), (110, 72), (76, 190), (240, 240), (392, 214)], .38, 72, (x, y, w, h), cell=5),
+            butterfly(u, [(360, 84), (200, 96), (70, 150), (200, 236), (380, 214)], .28, 110, (x, y, w, h), cell=6),
             label(24, 44, "AI & SOFTWARE ENGINEER", 11), label(24, 63, "DOHA, QATAR", 11),
             text(21, 146, "Aamir", 52, BLUE, family=SERIF, italic=True, ls=-1),
             text(21, 198, "Abdul Kader", 52, BLUE, family=SERIF, italic=True, ls=-1),
