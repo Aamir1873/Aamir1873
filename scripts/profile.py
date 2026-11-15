@@ -16,6 +16,7 @@ import concurrent.futures as cf
 import datetime as dt
 import html
 import json
+import math
 import os
 import pathlib
 import re
@@ -187,68 +188,16 @@ def date(iso, form="%-d %b %Y"):
     return dt.date.fromisoformat(iso).strftime(form)
 
 
-# --------------------------------------------------------------------------- butterfly (a lo-fi dithered monarch)
+# --------------------------------------------------------------------------- flower (a lo-fi dithered plant that grows and blooms)
 EASE = ".42 0 .58 1"
-
-# Right-hand wings, body on x = 0. Outlines are a start point plus cubic segments.
-FORE = ((3, -4), [((30, -40), (62, -64), (92, -66)), ((100, -66), (103, -58), (100, -50)),
-                  ((94, -32), (88, -14), (80, 2)), ((60, 6), (30, 6), (4, 2))])
-HIND = ((4, 4), [((30, 2), (62, 6), (78, 16)), ((90, 26), (86, 48), (72, 62)),
-                 ((58, 76), (30, 76), (16, 62)), ((8, 50), (4, 30), (4, 8))])
-FORE_VEINS = ["M6 -5C24 -18 40 -26 56 -31L51 -18C36 -14 20 -8 6 -1", "M8 -8C30 -30 52 -48 74 -60",
-              "M56 -31C66 -40 76 -52 86 -64", "M56 -31C70 -40 84 -50 97 -60", "M56 -31C72 -36 88 -42 101 -48",
-              "M54 -25C70 -28 84 -30 97 -34", "M51 -18C66 -18 80 -18 92 -20", "M44 -15C60 -12 74 -8 86 -6",
-              "M32 -11C50 -6 66 -2 82 1", "M20 -6C36 -2 52 2 66 4"]
-HIND_VEINS = ["M6 6C20 8 34 12 44 17C46 23 46 29 44 34C30 26 16 18 7 11", "M44 17C58 16 70 16 80 18",
-              "M45 22C60 24 74 28 87 33", "M45 28C60 34 74 42 85 48", "M44 34C56 44 66 52 74 62",
-              "M40 32C46 46 54 60 58 72", "M32 28C34 44 38 58 40 74", "M22 22C22 38 24 52 26 68", "M10 14C10 30 12 44 17 60"]
-APEX = "M58 -70L106 -70L106 -34C94 -37 80 -44 64 -54Z"
-APEX_SPOTS = [(84, -50, 2.8), (91, -45, 2.3), (77, -55, 2.2), (93, -53, 1.9), (70, -59, 1.6), (86, -40, 1.6)]
+EASE_OUT = ".2 .7 .3 1"
+B4_SEED = 7
 
 
 def _bez(p0, p1, p2, p3, t):
     mt = 1 - t
     return (mt**3 * p0[0] + 3 * mt * mt * t * p1[0] + 3 * mt * t * t * p2[0] + t**3 * p3[0],
             mt**3 * p0[1] + 3 * mt * mt * t * p1[1] + 3 * mt * t * t * p2[1] + t**3 * p3[1])
-
-
-def _sample(shape, first=0, last=None, k=28):
-    (x0, y0), segs = shape
-    starts = [(x0, y0)] + [s[2] for s in segs[:-1]]
-    pts = []
-    for i in range(first, len(segs) if last is None else last):
-        p1, p2, p3 = segs[i]
-        pts += [_bez(starts[i], p1, p2, p3, j / k) for j in range(k + 1)]
-    return pts
-
-
-def _lines(d):
-    """Polylines from an absolute M/L/C/Z path."""
-    toks = re.findall(r"[MLCZ]|-?\d*\.?\d+", d)
-    out, i, cur = [], 0, None
-    while i < len(toks):
-        t = toks[i]
-        if t == "M":
-            cur = (float(toks[i + 1]), float(toks[i + 2])); out.append([cur]); i += 3
-        elif t == "L":
-            cur = (float(toks[i + 1]), float(toks[i + 2])); out[-1].append(cur); i += 3
-        elif t == "C":
-            p1, p2, p3 = [(float(toks[i + j]), float(toks[i + j + 1])) for j in (1, 3, 5)]
-            out[-1] += [_bez(cur, p1, p2, p3, s / 12) for s in range(1, 13)]
-            cur = p3; i += 7
-        else:
-            out[-1].append(out[-1][0]); i += 1
-    return out
-
-
-def _inside(poly, x, y):
-    hit, j = False, len(poly) - 1
-    for i in range(len(poly)):
-        (xi, yi), (xj, yj) = poly[i], poly[j]
-        if (yi > y) != (yj > y) and x < (xj - xi) * (y - yi) / (yj - yi) + xi:
-            hit = not hit
-        j = i
-    return hit
 
 
 def _near(lines, x, y, r):
@@ -264,146 +213,127 @@ def _near(lines, x, y, r):
     return False
 
 
-def _edge_spots(shape, spans, centre, rows=((3.6, 6.2), (7.2, 8.4))):
-    """Points for the monarch's two rows of white spots, just inside a wing's outer edge."""
-    (x0, y0), segs = shape
-    starts = [(x0, y0)] + [s[2] for s in segs[:-1]]
-    pts = []
-    for i, (t0, t1) in spans:
-        p0, (p1, p2, p3) = starts[i], segs[i]
-        for k in range(161):
-            t = t0 + (t1 - t0) * k / 160
-            (px, py), (qx, qy) = _bez(p0, p1, p2, p3, t), _bez(p0, p1, p2, p3, min(1, t + .002))
-            dx, dy = qx - px, qy - py
-            ln = (dx * dx + dy * dy) ** .5 or 1
-            nx, ny = -dy / ln, dx / ln
-            if (centre[0] - px) * nx + (centre[1] - py) * ny < 0:
-                nx, ny = -nx, -ny
-            pts.append((px, py, nx, ny))
-    out = []
-    for r, (inset, gap) in enumerate(rows):
-        run, last = (gap / 2 if r else 0), None
-        for px, py, nx, ny in pts:
-            if last:
-                run += ((px - last[0]) ** 2 + (py - last[1]) ** 2) ** .5
-            last = (px, py)
-            if run >= gap:
-                run = 0
-                out.append((px + nx * inset, py + ny * inset, 2.2 if r == 0 else 1.9))
-    return out
-
-
-WING = {
-    "fore": dict(poly=_sample(FORE), outer=[_sample(FORE, 0, 3)], inner=[_sample(FORE, 3, 4)],
-                 veins=[ln for d in FORE_VEINS for ln in _lines(d)], apex=_lines(APEX)[0],
-                 spots=_edge_spots(FORE, [(0, (.84, 1)), (1, (0, 1)), (2, (0, .94))], (56, -26)) + APEX_SPOTS),
-    "hind": dict(poly=_sample(HIND), outer=[_sample(HIND, 1, 3)], inner=[_sample(HIND, 3, 4), _sample(HIND, 0, 1)],
-                 veins=[ln for d in HIND_VEINS for ln in _lines(d)], apex=None,
-                 spots=_edge_spots(HIND, [(0, (.62, 1)), (1, (0, 1)), (2, (0, .86))], (44, 36))),
-}
-
-
-def _wing_tone(x, y):
-    """Ink density at a point of the right-hand wings: 1 = solid, 0 = paper, None = outside."""
-    for key in ("fore", "hind"):                      # forewing sits on top
-        w = WING[key]
-        if not _inside(w["poly"], x, y):
-            continue
-        if any((x - sx) ** 2 + (y - sy) ** 2 <= (r + .3) ** 2 for sx, sy, r in w["spots"]):
-            return 0
-        if w["apex"] and _inside(w["apex"], x, y):
-            return 1
-        if _near(w["outer"], x, y, 9) or _near(w["inner"], x, y, 2.2) or _near(w["veins"], x, y, 1.6):
-            return 1
-        return .2 + .24 * max(0, 1 - (x * x + y * y) ** .5 / 105)    # lighter cells so veins and borders read; darker toward the body
-    return None
-
-
-BODY = [(0, 17, 3.8, 19), (0, -6, 5.6, 10.5), (0, -19.5, 5.2, 5.2)]
-BODY_SPOTS = [(-2.2, -21), (2.2, -21), (-2.6, -10), (2.6, -10), (-2.8, -3), (2.8, -3)]
-ANTENNAE = [[(1.5, -22), (8, -36), (17, -50)], [(-1.5, -22), (-8, -36), (-17, -50)]]
-
-
-def _body_tone(x, y):
-    if any((x - sx) ** 2 + (y - sy) ** 2 <= 1.6 ** 2 for sx, sy in BODY_SPOTS):
-        return 0
-    if any(((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 <= 1 for cx, cy, rx, ry in BODY):
-        return 1
-    if _near(ANTENNAE, x, y, 1.7) or any((x - ex) ** 2 + (y + 50.6) ** 2 <= 3.2 ** 2 for ex in (17.6, -17.6)):
-        return 1
-    return None
-
-
-def _dots(tone, xs, ys, cell, groups, seed):
-    """Ordered (4x4 Bayer) dither of a tone field into square pixels, split into shimmer groups."""
-    rnd = __import__("random").Random(seed)
-    paths = [[] for _ in range(groups)]
-    size = cell * .78
-    for gy in ys:
-        for gx in xs:
+def _dots(tone, x0, x1, y0, y1, cell):
+    """Ordered (4x4 Bayer) dither of a tone field into square ink pixels, as one path."""
+    out, size = [], cell * .8
+    for gy in range(int(y0 // cell) - 1, int(y1 // cell) + 1):
+        for gx in range(int(x0 // cell) - 1, int(x1 // cell) + 1):
             t = tone(gx * cell + cell / 2, gy * cell + cell / 2)
             if t is None or t <= (B4[gy % 4][gx % 4] + .5) / 16:
                 continue
             x, y = gx * cell + (cell - size) / 2, gy * cell + (cell - size) / 2
-            paths[rnd.randrange(groups)].append(f"M{n(x)} {n(y)}h{n(size)}v{n(size)}h{n(-size)}z")
-    return ["".join(p) for p in paths]
+            out.append(f"M{n(x)} {n(y)}h{n(size)}v{n(size)}h{n(-size)}z")
+    return "".join(out)
 
 
-def smooth_loop(pts):
-    """A closed Catmull-Rom curve through the waypoints, as cubic Bezier path data."""
-    d, m = f"M{pts[0][0]} {pts[0][1]}", len(pts)
-    for i in range(m):
-        p0, p1, p2, p3 = pts[i - 1], pts[i], pts[(i + 1) % m], pts[(i + 2) % m]
-        c1 = (p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6)
-        c2 = (p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6)
-        d += f"C{n(c1[0])} {n(c1[1])} {n(c2[0])} {n(c2[1])} {p2[0]} {p2[1]}"
-    return d
+STEM = ((0, 0), (-7, -52), (11, -100), (4, -150))      # base to flower head, local units (up is -y)
+STEM_LINE = [[_bez(*STEM, k / 60) for k in range(61)]]
+TOP = STEM[3]
+LEAVES = [(.34, -152, 1.8), (.6, -28, 2.6)]              # (position along stem, angle, start time)
 
 
-def butterfly(u, waypoints, scale, dur, box, cell=3):
-    """A lo-fi dithered monarch: square ink pixels that shimmer and stray specks drifting off the wings.
-    It beats three times and glides, and wanders the whole card facing where it flies, hovering now and then."""
-    rows = range(int(-72 // cell) - 1, int(78 // cell) + 1)
-    wing = _dots(_wing_tone, range(0, int(106 // cell) + 1), rows, cell, 3, 7)
-    body = _dots(_body_tone, range(int(-20 // cell) - 1, int(20 // cell) + 1), range(int(-56 // cell) - 1, int(38 // cell) + 1), cell, 1, 3)
-    shimmer = [("0 0;.5 -.4;-.3 .4;0 0", 7.0), ("0 0;-.4 .3;.4 -.4;0 0", 8.5), ("0 0;.3 .5;-.5 -.2;0 0", 10.0)]
-    pixels = "".join(f'<path d="{d}" fill="{BLUE}"><animateTransform attributeName="transform" type="translate" '
-                     f'values="{v}" dur="{t}s" repeatCount="indefinite" calcMode="spline" keyTimes="0;.33;.66;1" '
-                     f'keySplines="{EASE};{EASE};{EASE}"/></path>'
-                     for d, (v, t) in zip(wing, shimmer))
-    defs = f'<g id="{u}-wing">{pixels}</g>'
-    beats, times = "1 1;.36 1;1 1;.36 1;1 1;.86 1;1 1", "0;.1;.2;.3;.4;.7;1"
-    flap = (f'<animateTransform attributeName="transform" type="scale" dur="8.5s" repeatCount="indefinite" values="{beats}" '
-            f'keyTimes="{times}" calcMode="spline" keySplines="{";".join([EASE] * 6)}"/>')
-    use = f'<use href="#{u}-wing" xlink:href="#{u}-wing"/>'
-    wings = f'<g transform="scale(-1 1)"><g>{flap}{use}</g></g><g>{flap}{use}</g>'
+def _stem_tone(x, y):
+    return 1 if _near(STEM_LINE, x, y, 2.6) else None
 
-    # stray specks peeling off the outer edges, like a loose swarm
-    rnd = __import__("random").Random(11)
-    edge = WING["fore"]["outer"][0] + WING["hind"]["outer"][0]
-    specks = []
-    for k in range(14):
-        px, py = edge[rnd.randrange(len(edge))]
-        side = -1 if k % 2 else 1
-        dx, dy = px - 40, py - 4
-        ln = (dx * dx + dy * dy) ** .5 or 1
-        dist = rnd.uniform(10, 24)
-        tx, ty = side * (dx / ln * dist + rnd.uniform(-5, 5)), dy / ln * dist + rnd.uniform(-5, 5)
-        speck_dur, s = rnd.uniform(6.5, 10), cell * .8
-        specks.append(f'<rect x="{n(side * px - s / 2)}" y="{n(py - s / 2)}" width="{n(s)}" height="{n(s)}" fill="{BLUE}" opacity="0">'
-                      f'<animate attributeName="opacity" values="0;.85;0" dur="{speck_dur:.1f}s" begin="-{rnd.uniform(0, 4):.1f}s" repeatCount="indefinite"/>'
-                      f'<animateTransform attributeName="transform" type="translate" values="0 0;{n(tx)} {n(ty)}" dur="{speck_dur:.1f}s" '
-                      f'begin="-{rnd.uniform(0, 4):.1f}s" repeatCount="indefinite"/></rect>')
-    insect = f'<g transform="scale({scale})">{"".join(specks)}{wings}<path d="{body[0]}" fill="{BLUE}"/></g>'
-    wobble = (f'<g>{insect}<animateTransform attributeName="transform" type="rotate" values="-3;2.5;-2;-3" dur="12s" '
-              f'repeatCount="indefinite" calcMode="spline" keyTimes="0;.4;.75;1" keySplines="{EASE};{EASE};{EASE}"/></g>')
-    bx, by, bw, bh = box
-    clip = f'<clipPath id="{u}-fly"><rect x="{bx}" y="{by}" width="{bw}" height="{bh}" rx="8"/></clipPath>'
-    # keyPoints slow it to a hover twice per lap; rotate="auto" turns it along the path (its head points up, hence +90)
-    motion = (f'<animateMotion path="{smooth_loop(waypoints)}" dur="{dur}s" repeatCount="indefinite" rotate="auto" '
-              f'calcMode="paced"/>')
-    flight = f'<g clip-path="url(#{u}-fly)"><g>{motion}<g transform="rotate(90)">{wobble}</g></g></g>'
-    return f'<defs>{defs}{clip}</defs>' + flight
+
+def _leaf_tone(x, y, length=46, width=17):
+    """An almond leaf along +x from its base: dithered blade, solid midrib and rim."""
+    if not 0 <= x <= length:
+        return None
+    half = width / 2 * math.sin(math.pi * x / length) ** .8
+    if abs(y) > half:
+        return None
+    if abs(y) <= 1.3 or abs(y) >= half - 1.7:
+        return 1
+    return .38 + .24 * (1 - x / length)
+
+
+def _petal_tone(x, y, inner=8, outer=42, width=14):
+    """A petal pointing up (-y) from the flower centre: dithered, darker at the base, with a solid rim."""
+    r = -y
+    if not inner <= r <= outer:
+        return None
+    t = (r - inner) / (outer - inner)
+    half = width / 2 * math.sin(math.pi * min(1, t * 1.08)) ** .55
+    if abs(x) > half:
+        return None
+    if abs(x) >= half - 1.6 or t > .95:
+        return 1
+    return .34 + .3 * (1 - t)
+
+
+def _disc_tone(x, y, r=12):
+    d = (x * x + y * y) ** .5
+    if d > r:
+        return None
+    seeds = [(3.4 * math.cos(a), 3.4 * math.sin(a)) for a in (0, 2.1, 4.2)] + [(0, 0)]
+    if d < r - 2 and any((x - sx) ** 2 + (y - sy) ** 2 < 1.6 for sx, sy in seeds):
+        return 0
+    return 1
+
+
+def _bud_tone(x, y):
+    if ((x / 8) ** 2 + ((y + 11) / 13) ** 2) > 1:
+        return None
+    return 1 if ((x / 8) ** 2 + ((y + 11) / 13) ** 2) > .62 or abs(x) < 1.2 else .55
+
+
+def _soil_tone(x, y):
+    if ((x / 40) ** 2 + (y / 9) ** 2) > 1 or y < -9:
+        return None
+    return .5 + .3 * (y + 9) / 9
+
+
+def _grow(begin, dur, frm="0 0", to="1 1", spline=EASE_OUT):
+    return (f'<animateTransform attributeName="transform" type="scale" from="{frm}" to="{to}" begin="{begin}s" dur="{dur}s" '
+            f'fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="{spline}"/>')
+
+
+def flower(u, bx, by, scale, cell=3):
+    """A plant that grows from a sprout to a bloom once, then sways in place and gives off a little pollen."""
+    stem_h = -TOP[1] + 2
+    clip = (f'<clipPath id="{u}-stem"><rect x="-30" y="2" width="60" height="0">'
+            f'<animate attributeName="y" from="2" to="{-stem_h}" begin=".5s" dur="3.6s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="{EASE_OUT}"/>'
+            f'<animate attributeName="height" from="0" to="{stem_h + 2}" begin=".5s" dur="3.6s" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines="{EASE_OUT}"/>'
+            f'</rect></clipPath>')
+    ink = f'fill="{BLUE}"'
+    soil = f'<path d="{_dots(_soil_tone, -42, 42, -10, 2, cell)}" {ink}/>'
+    stem = f'<g clip-path="url(#{u}-stem)"><path d="{_dots(_stem_tone, -12, 16, -152, 2, cell)}" {ink}/></g>'
+    leaf_px = _dots(_leaf_tone, 0, 48, -10, 10, cell)
+    leaves = ""
+    for pos, angle, start in LEAVES:
+        ax, ay = _bez(*STEM, pos)
+        leaves += (f'<g transform="translate({n(ax)} {n(ay)}) rotate({angle})"><g transform="scale(0)">{_grow(start, 1.6)}'
+                   f'<path d="{leaf_px}" {ink}/></g></g>')
+    bud = (f'<g transform="translate({TOP[0]} {TOP[1]})"><g transform="scale(0)">{_grow(3.7, 1.1)}'
+           f'<g><animate attributeName="opacity" from="1" to="0" begin="5.3s" dur=".9s" fill="freeze"/>'
+           f'<path d="{_dots(_bud_tone, -9, 9, -25, 2, cell)}" {ink}/></g></g></g>')
+    petal_px = _dots(_petal_tone, -11, 11, -41, -6, cell)
+    petals = ""
+    for i in range(8):
+        target, start = i * 45, 4.9 + (i % 4) * .08
+        fold = (i * 45 + 180) % 360 - 180        # fold every petal back toward straight up
+        petals += (f'<g transform="rotate({fold * .12:.1f})"><animateTransform attributeName="transform" type="rotate" '
+                   f'from="{fold * .12:.1f}" to="{target}" begin="{start:.2f}s" dur="2.4s" fill="freeze" calcMode="spline" keyTimes="0;1" '
+                   f'keySplines="{EASE_OUT}"/><g transform="scale(0)">{_grow(start, 2.2)}<path d="{petal_px}" {ink}/></g></g>')
+    disc = f'<g transform="scale(0)">{_grow(5.4, 1.4)}<path d="{_dots(_disc_tone, -13, 13, -13, 13, cell)}" {ink}/></g>'
+    head = f'<g transform="translate({TOP[0]} {TOP[1]})">{petals}{disc}</g>'
+
+    rnd = __import__("random").Random(5)
+    pollen = ""
+    for k in range(7):
+        sx, sy = TOP[0] + rnd.uniform(-10, 10), TOP[1] + rnd.uniform(-8, 4)
+        dx, dy, d = rnd.uniform(-22, 22), rnd.uniform(-46, -26), rnd.uniform(5, 8.5)
+        begin = 8 + rnd.uniform(0, 6)
+        s = cell * .8
+        pollen += (f'<rect x="{n(sx)}" y="{n(sy)}" width="{n(s)}" height="{n(s)}" {ink} opacity="0">'
+                   f'<animate attributeName="opacity" values="0;.8;0" dur="{d:.1f}s" begin="{begin:.1f}s" repeatCount="indefinite"/>'
+                   f'<animateTransform attributeName="transform" type="translate" values="0 0;{n(dx)} {n(dy)}" dur="{d:.1f}s" '
+                   f'begin="{begin:.1f}s" repeatCount="indefinite"/></rect>')
+    sway = (f'<animateTransform attributeName="transform" type="rotate" values="0 0 0;1.8 0 0;-1.4 0 0;0 0 0" begin="7.5s" dur="11s" '
+            f'repeatCount="indefinite" calcMode="spline" keyTimes="0;.35;.7;1" keySplines="{EASE};{EASE};{EASE}"/>')
+    plant = f'<g>{sway}{stem}{leaves}{bud}{head}{pollen}</g>'
+    return f'<defs>{clip}</defs><g transform="translate({bx} {by}) scale({scale})">{plant}{soil}</g>'
 
 
 # --------------------------------------------------------------------------- hero
@@ -411,7 +341,7 @@ def hero(s):
     u, W, H = "hero", 880, 250
     x, y, w, h = 8, 6, 864, 236
     body = [card(x, y, w, h),
-            butterfly(u, [(770, 118), (600, 72), (360, 80), (150, 120), (330, 186), (600, 182)], .4, 150, (x, y, w, h), cell=4),
+            flower(u, 770, 238, 1, cell=3),
             label(40, 56, ROLE),
             text(36, 132, NAME, 62, BLUE, family=SERIF, italic=True, ls=-1),
             text(40, 172, PITCH, 17),
@@ -421,7 +351,7 @@ def hero(s):
     u, W, H = "hero-m", 440, 312
     x, y, w, h = 6, 6, 428, 300
     body = [card(x, y, w, h),
-            butterfly(u, [(360, 84), (200, 96), (70, 150), (200, 236), (380, 214)], .28, 110, (x, y, w, h), cell=6),
+            flower(u, 394, 302, .62, cell=4),
             label(24, 44, "AI & SOFTWARE ENGINEER", 11), label(24, 63, "DOHA, QATAR", 11),
             text(21, 146, "Aamir", 52, BLUE, family=SERIF, italic=True, ls=-1),
             text(21, 198, "Abdul Kader", 52, BLUE, family=SERIF, italic=True, ls=-1),
