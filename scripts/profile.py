@@ -13,6 +13,7 @@ Standard library only, so the workflow needs no installs.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import html
 import json
 import math
@@ -532,24 +533,28 @@ def links():
 
 
 # --------------------------------------------------------------------------- README
-def picture(name, alt, version, href=None):
-    tag = (f'<picture><source media="(max-width: 700px)" srcset="profile/{name}-mobile.svg?v={version}">'
-           f'<img src="profile/{name}.svg?v={version}" width="100%" alt="{html.escape(alt)}"></picture>')
+def version(name):
+    """A short fingerprint of an image's content, so a changed image gets a new URL and skips stale caches."""
+    return hashlib.sha1((OUT / f"{name}.svg").read_bytes()).hexdigest()[:10]
+
+
+def picture(name, alt, href=None):
+    tag = (f'<picture><source media="(max-width: 700px)" srcset="profile/{name}-mobile.svg?v={version(name + "-mobile")}">'
+           f'<img src="profile/{name}.svg?v={version(name)}" width="100%" alt="{html.escape(alt)}"></picture>')
     return f'<a href="{href}">{tag}</a>' if href else tag
 
 
 def readme(s):
-    v = s["updated"].replace("-", "")
     lines = [
         "<!-- The images in profile/ and this file are regenerated daily by .github/workflows/update-profile.yml. -->",
         "",
-        picture("hero", f"{NAME}, AI and software engineer in Doha, Qatar. {PITCH}", v, SITE),
+        picture("hero", f"{NAME}, AI and software engineer in Doha, Qatar. {PITCH}", SITE),
         "",
-        picture("stats", stats_alt(s), v),
+        picture("stats", stats_alt(s)),
         "",
-        picture("calendar", f"{fmt(s['last_year'])} contributions in the last 12 months", v),
+        picture("calendar", f"{fmt(s['last_year'])} contributions in the last 12 months"),
         "",
-        "<p>" + "<br>".join(picture(f"link-{key}", f"{lab.title()}: {value}", v, href) for key, lab, value, _, href in LINKS) + "</p>",
+        "<p>" + "<br>".join(picture(f"link-{key}", f"{lab.title()}: {value}", href) for key, lab, value, _, href in LINKS) + "</p>",
         "",
     ]
     (ROOT / "README.md").write_text("\n".join(lines))
