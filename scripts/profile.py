@@ -12,7 +12,6 @@ Standard library only, so the workflow needs no installs.
 """
 from __future__ import annotations
 
-import concurrent.futures as cf
 import datetime as dt
 import html
 import json
@@ -94,17 +93,6 @@ def fetch(token):
             break
         page += 1
 
-    def commits(full):
-        status, headers, body = call(f"{API}/repos/{full}/commits?author={login}&per_page=1", token)
-        if status != 200:
-            return 0
-        m = re.search(r'[?&]page=(\d+)>; rel="last"', headers.get("Link", ""))
-        return int(m.group(1)) if m else len(json.loads(body or b"[]"))
-
-    names = [r["full_name"] for r in repos if not r.get("fork")]
-    with cf.ThreadPoolExecutor(8) as ex:
-        counts = dict(zip(names, ex.map(commits, names)))
-
     days = [d for w in calendar["weeks"] for d in w["contributionDays"]]
     streak = best = 0
     for d in days:
@@ -118,7 +106,6 @@ def fetch(token):
         "weeks": [[[d["date"], d["contributionCount"], d["contributionLevel"]] for d in w["contributionDays"]] for w in calendar["weeks"]],
         "active_days": sum(1 for d in days if d["contributionCount"]), "longest_streak": best,
         "best_day": [top["contributionCount"], top["date"]],
-        "commits": sum(counts.values()), "repos_committed": sum(1 for v in counts.values() if v),
         "owned": len(owned), "public": sum(1 for r in owned if not r["private"]),
         "stars": sum(r["stargazers_count"] for r in owned if not r["private"]),
     }
@@ -420,13 +407,12 @@ def hero(s):
 def stats_items(s):
     return [(fmt(s["all_time"]), "contributions", f"since {date(s['joined'], '%b %Y')}"),
             (fmt(s["last_year"]), "contributions", "in the last 12 months"),
-            (fmt(s["commits"]), "commits", f"across {s['repos_committed']} repositories"),
             (str(s["owned"]), "repositories", f"{s['public']} public, the rest private")]
 
 
 def stats_alt(s):
     return (f"On GitHub: {fmt(s['all_time'])} contributions since {date(s['joined'], '%B %Y')}, {fmt(s['last_year'])} in the last "
-            f"12 months, {fmt(s['commits'])} commits across {s['repos_committed']} repositories, {s['owned']} repositories of my own.")
+            f"12 months, {s['owned']} repositories of my own, {s['public']} of them public.")
 
 
 def stats(s):
@@ -435,7 +421,7 @@ def stats(s):
     x, y, w, h = 8, 6, 864, 164
     body = [card(x, y, w, h), label(32, 40, "ON GITHUB  ·  PRIVATE WORK INCLUDED"), label(848, 40, stamp, 10.5, "end", MUTED)]
     for i, (big, l1, l2) in enumerate(stats_items(s)):
-        cx = 32 + i * 206
+        cx = 32 + i * 276
         if i:
             body.append(f'<rect x="{cx - 20}" y="62" width="1" height="90" fill="{EDGE}"/>')
         body += [text(cx - 2, 104, big, 46, BLUE, family=SERIF, italic=True, ls=-1),
@@ -586,7 +572,7 @@ def main():
             CACHE.write_text(json.dumps(s))
     OUT.mkdir(exist_ok=True)
     hero(s), stats(s), calendar(s), links(), readme(s)
-    print(f"Rendered profile: {fmt(s['last_year'])} contributions in the last year, {fmt(s['commits'])} commits.")
+    print(f"Rendered profile: {fmt(s['last_year'])} contributions in the last year, {s['owned']} repositories.")
 
 
 if __name__ == "__main__":
